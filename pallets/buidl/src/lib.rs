@@ -91,6 +91,41 @@ pub mod pallet {
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 
+	// Challenge struct
+	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo)]
+	pub struct Challenge<T: Config> {
+		/// description (ipfs hash)
+		pub description: H256,
+		/// reward
+		pub reward: T::Balance,
+		/// eligible judges
+		pub judges: Vec<T::AccountId>,
+		/// number of times a challenge 
+		pub max: u32,
+	}
+
+	/// Struct for holding team information
+	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+	#[scale_info(skip_type_params(T))]
+	pub struct Team<T: Config> {
+		/// The founding member of this team.
+		/// Note: this could be the prime member from membership pallet.
+		team_founder: T::AccountId,
+		/// The team ID.
+		team_id: u32,
+		/// The members of this team.
+		members: BoundedVec<T::AccountId, T::MaxMembers>,
+		/// TODO: add registration NFT
+	}
+	
+
+	// Bounty struct
+	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo)]
+	pub struct Bounty<T: Config> {
+		// Do we need this?
+	}
+
+	// Double storage map for team ID -> (AccountId, percentage)
 
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
@@ -103,16 +138,10 @@ pub mod pallet {
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 	}
 
-	// The pallet's runtime storage items.
-	// https://docs.substrate.io/main-docs/build/runtime-storage/
 	#[pallet::storage]
 	#[pallet::getter(fn something)]
-	// Learn more about declaring storage items:
-	// https://docs.substrate.io/main-docs/build/runtime-storage/#declaring-storage-items
 	pub type Something<T> = StorageValue<_, u32>;
 
-	// Pallets use events to inform users when important changes are made.
-	// https://docs.substrate.io/main-docs/build/events-errors/
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
