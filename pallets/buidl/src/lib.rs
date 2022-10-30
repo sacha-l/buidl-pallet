@@ -88,7 +88,9 @@ mod benchmarking;
 
 #[frame_support::pallet]
 pub mod pallet {
-	use frame_support::{pallet_prelude::*};
+	use core::default;
+
+use frame_support::{pallet_prelude::*};
 	use frame_system::pallet_prelude::*;
 	use frame_support::{
 		traits::{Currency, LockIdentifier, LockableCurrency, WithdrawReasons},
@@ -114,16 +116,18 @@ pub mod pallet {
 		/// Number of times a challenge has had a solution submitted to it
 		pub submissions: u32,
 	}
-	#[derive(Encode, Decode, TypeInfo)]
-	pub struct ChallengeSolution<T:Config> {
+	
+	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+	#[scale_info(skip_type_params(T))]
+	pub struct SubmittedSolution<T: Config> {
 		/// pointer to solution
-		pub solution: Vec<u8>,
+		pub solution: H256,
 		/// participants
 		pub members: BoundedVec<T::AccountId, T::MaxMembers>,
 	}
 
 	/// Struct for holding team information
-	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo)]
+	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 	#[scale_info(skip_type_params(T))]
 	pub struct Team<T: Config> {
 		/// The founding member of this team.
@@ -149,6 +153,9 @@ pub mod pallet {
 		/// The maximum amount of people in a team.
 		#[pallet::constant]
 		type MaxMembers: Get<u32>;
+		/// The maximum amount of solutions a challenge can accept.
+		#[pallet::constant]
+		type MaxSolutions: Get<u32>;
 	}
 
 	/// The next `ChallengeId` to assign.
@@ -162,7 +169,7 @@ pub mod pallet {
 
 	/// List of ChallegeIds that are ready to be voted on
 	#[pallet::storage]
-	pub type ChallengeSolutions<T> = StorageMap<_, Twox64Concat, u16, ChallengeSolution<T>, OptionQuery>;
+	pub type ChallengeSolutions<T> = StorageMap<_, Twox64Concat, u16, SubmittedSolution<T>, OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -180,6 +187,8 @@ pub mod pallet {
 		AccountHasNoChallengeRegistered,
 		/// A challenge must exist for a valid solution submission
 		ChallengeDoesNotExist,
+		// Submitted solution contains too many members
+		TooManyMembers
 	}
 
 	// Dispatchable functions allows users to interact with the pallet and invoke state changes.
@@ -261,16 +270,22 @@ pub mod pallet {
 			
 			let who = ensure_signed(origin)?;
 			// check if the challenge exists
-			ensure!(Challenges::<T>::contains_key(&challengeId), Error::<T>::ChallengeDoesNotExist)?;
-			
-			// check that the solution does not exist bound
-			let uploaded_solution: BoundedVec<_,_> = solution;
-			let new_solution: ChallengeSolution<T> = ChallengeSolution::<T> {
-				solution.clone(),
-				members.clone ,
-			};
+			ensure!(Challenges::<T>::contains_key(&challengeId), Error::<T>::ChallengeDoesNotExist);
+		
+			// TODO: ensure that the members added are bounded
 
-			ChallengeSolutions::<T>::insert(new_solution);
+			// check that the solution does not exist
+
+			// // create a new solution object
+			// let new_solution = SubmittedSolution::<T> {
+			// 	solution,
+			// 	members,
+			// };
+
+			//ChallengeSolutions::<T>::mutate(challengeId, |sol| {
+			//
+			//	sol = new_solution.clone();
+			//});
 
 			Self::deposit_event(Event::SolutionSubmitted{ id: challengeId, member: who.clone() });
 
