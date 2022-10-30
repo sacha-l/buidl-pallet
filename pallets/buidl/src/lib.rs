@@ -96,6 +96,7 @@ pub mod pallet {
 	use sp_core::H256;
 
 	const DEPOSIT_FOR_CHALLENGE: LockIdentifier = *b" deposit";
+	const CHALLENGE_ID : u16;
 
 	// Handler for balances
 	type BalanceOf<T> =
@@ -107,14 +108,12 @@ pub mod pallet {
 	pub struct Challenge<T: Config> {
 		/// Description (ipfs hash)
 		pub description: H256,
-		/// Challenge id
-		pub id: u32,
 		/// Reward
 		pub reward: BalanceOf<T>,
 		/// Eligible judges
-		pub judges: Option<BoundedVec<T::AccountId, T::MaxMembers>>,
+		pub judges: Optifon<BoundedVec<T::AccountId, T::MaxMembers>>,
 		/// Number of times a challenge has had a solution submitted to it
-		pub amount_submitted: u32,
+		pub submissions: u32,
 	}
 
 	/// Struct for holding team information
@@ -149,7 +148,7 @@ pub mod pallet {
 
 	#[pallet::storage]
 	pub type Challenges<T: Config> =
-		StorageMap<_, Twox64Concat, T::AccountId, Challenge<T>, OptionQuery>;
+		StorageMap<_, Twox64Concat, CHALLENGE_ID, Challenge<T>, OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
