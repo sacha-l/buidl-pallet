@@ -107,14 +107,19 @@ pub mod pallet {
 	pub struct Challenge<T: Config> {
 		/// Description (ipfs hash)
 		pub description: H256,
-		/// Challenge id
-		pub id: u32,
 		/// Reward
 		pub reward: BalanceOf<T>,
 		/// Eligible judges
-		pub judges: Option<BoundedVec<T::AccountId, T::MaxMembers>>,
+		pub judges: Optifon<BoundedVec<T::AccountId, T::MaxMembers>>,
 		/// Number of times a challenge has had a solution submitted to it
-		pub amount_submitted: u32,
+		pub submissions: u32,
+	}
+	#[derive(Encode, Decode, TypeInfo, MaxEncodedLen)]
+	pub struct ChallengeSolution<T:Config> {
+		/// pointer to solution
+		pub solution: Vec<u8>,
+		/// participants
+		pub members: BoundedVec<T::AccountId, T::MaxMembers>,
 	}
 
 	/// Struct for holding team information
@@ -129,8 +134,6 @@ pub mod pallet {
 		/// The members of this team.
 		members: BoundedVec<T::AccountId, T::MaxMembers>,
 	}
-
-	// Double storage map for team ID -> (AccountId, percentage)
 
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
@@ -148,15 +151,26 @@ pub mod pallet {
 		type MaxMembers: Get<u32>;
 	}
 
+	/// The next `ChallengeId` to assign.
+	#[pallet::storage]
+	pub type NextChallengeId<T> = StorageValue<_, u16, ValueQuery>;
+
+	/// ChallengeId -> Challenge
 	#[pallet::storage]
 	pub type Challenges<T: Config> =
-		StorageMap<_, Twox64Concat, T::AccountId, Challenge<T>, OptionQuery>;
+		StorageMap<_, Twox64Concat, u16, Challenge<T>, OptionQuery>;
+
+	/// List of ChallegeIds that are ready to be voted on
+	#[pallet::storage]
+	pub type ChallengeSolutions<T> = StorageMapStorageMap<_, Twox64Concat, u16, ChallengeSolution<T>, OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// A challenge has been created with [id, creator]
-		ChallengeCreated {id: u32, creator: T::AccountId },
+		ChallengeCreated {id: u16, creator: T::AccountId },
+		/// Solution has been submitted for a certain challenge [challengeId, sender]
+		SolutionSubmitted {id: u16, member: T::AccountId },
 	}
 
 	// Errors inform users that something went wrong.
@@ -211,7 +225,7 @@ pub mod pallet {
 
 		}
 
-		
+		// Allows challenge author to edit their challenge description
 		#[pallet::weight(0)]
 		pub fn edit_challenge(
 			origin: OriginFor<T>, 
@@ -232,6 +246,29 @@ pub mod pallet {
 			Ok(())
 		}
 
+		// Allows an account to submit a solution to a challenge
+		#[pallet::weight(0)]
+		pub fn submit_solution(
+			origin: OriginFor<T>,
+			challengeId: u16,
+			solution: Vec<u8>,
+			members: Vec<AccountId>
+		) -> DispatchResult {
+			
+			let who = ensure_signed(origin)?;
+			Challenges::<T>::contains_key(challengeId)?;
+			
+			let new_solution: ChallengeSolution = ChallengeSolution::<T> {
+				solution = soltion.clone(),
+				members = members.clone(),
+			};
+
+			ChallengeSolutions::<T>::insert(new_solution);
+
+			Self::deposit_event(Event::SolutionSubmitted{ challengeId, creator: who.clone() });
+
+			Ok(()).into();
+		}
 	}
 
 }
