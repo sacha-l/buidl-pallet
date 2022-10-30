@@ -110,11 +110,11 @@ pub mod pallet {
 		/// Reward
 		pub reward: BalanceOf<T>,
 		/// Eligible judges
-		pub judges: Optifon<BoundedVec<T::AccountId, T::MaxMembers>>,
+		pub judges: Option<BoundedVec<T::AccountId, T::MaxMembers>>,
 		/// Number of times a challenge has had a solution submitted to it
 		pub submissions: u32,
 	}
-	#[derive(Encode, Decode, TypeInfo, MaxEncodedLen)]
+	#[derive(Encode, Decode, TypeInfo)]
 	pub struct ChallengeSolution<T:Config> {
 		/// pointer to solution
 		pub solution: Vec<u8>,
@@ -162,7 +162,7 @@ pub mod pallet {
 
 	/// List of ChallegeIds that are ready to be voted on
 	#[pallet::storage]
-	pub type ChallengeSolutions<T> = StorageMapStorageMap<_, Twox64Concat, u16, ChallengeSolution<T>, OptionQuery>;
+	pub type ChallengeSolutions<T> = StorageMap<_, Twox64Concat, u16, ChallengeSolution<T>, OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -178,6 +178,8 @@ pub mod pallet {
 	pub enum Error<T> {
 		/// Account editing a challenge must be the original challenge author.
 		AccountHasNoChallengeRegistered,
+		/// A challenge must exist for a valid solution submission
+		ChallengeDoesNotExist,
 	}
 
 	// Dispatchable functions allows users to interact with the pallet and invoke state changes.
@@ -190,7 +192,6 @@ pub mod pallet {
 		pub fn create_challenge(
 			origin: OriginFor<T>, 
 			description: H256,
-			id: u32,
 			reward: BalanceOf<T>,
 			judges: Option<BoundedVec<T::AccountId, T::MaxMembers>>
 		) -> DispatchResult
@@ -209,17 +210,19 @@ pub mod pallet {
 
 			// create new challenge object
 			let new_challenge = Challenge::<T> {
-				id,
 				description,
 				reward,
 				judges,
-				amount_submitted: 0
+				submissions: 0
 			};
 
-			// write to storage 
-			Challenges::<T>::insert(who.clone(), new_challenge);
+			// write to storage
+			let next_challenge_id = NextChallengeId::<T>::get();
+			Challenges::<T>::insert(next_challenge_id, new_challenge);
+			next_challenge_id.checked_add(1);
+			NextChallengeId::<T>::put(next_challenge_id);
 
-			Self::deposit_event(Event::ChallengeCreated { id, creator: who.clone() });
+			Self::deposit_event(Event::ChallengeCreated { id: next_challenge_id, creator: who.clone() });
 
 			Ok(()).into()
 
@@ -227,21 +230,22 @@ pub mod pallet {
 
 		// Allows challenge author to edit their challenge description
 		#[pallet::weight(0)]
-		pub fn edit_challenge(
-			origin: OriginFor<T>, 
+		pub fn edit_challenge(		
+			origin: OriginFor<T>,
+			id: u16, 
 			new_description: H256,
 		) -> DispatchResult {
 
 			let who = ensure_signed(origin)?;
 
 			// check challenge exists and is owned by caller and get the challenge object
-			let mut challenge = Challenges::<T>::get(&who).ok_or(Error::<T>::AccountHasNoChallengeRegistered)?;
+			let mut challenge = Challenges::<T>::get(&id).ok_or(Error::<T>::AccountHasNoChallengeRegistered)?;
 
 			// mutate the description field with new_description
 			challenge.description = new_description;
 
 			// write updated object to storage
-			Challenges::<T>::insert(&who, challenge);
+			Challenges::<T>::insert(&id, challenge);
 
 			Ok(())
 		}
@@ -251,23 +255,26 @@ pub mod pallet {
 		pub fn submit_solution(
 			origin: OriginFor<T>,
 			challengeId: u16,
-			solution: Vec<u8>,
-			members: Vec<AccountId>
+			solution: H256,
+			members: Vec<T::AccountId>
 		) -> DispatchResult {
 			
 			let who = ensure_signed(origin)?;
-			Challenges::<T>::contains_key(challengeId)?;
+			// check if the challenge exists
+			ensure!(Challenges::<T>::contains_key(&challengeId), Error::<T>::ChallengeDoesNotExist)?;
 			
-			let new_solution: ChallengeSolution = ChallengeSolution::<T> {
-				solution = soltion.clone(),
-				members = members.clone(),
+			// check that the solution does not exist bound
+			let uploaded_solution: BoundedVec<_,_> = solution;
+			let new_solution: ChallengeSolution<T> = ChallengeSolution::<T> {
+				solution.clone(),
+				members.clone ,
 			};
 
 			ChallengeSolutions::<T>::insert(new_solution);
 
-			Self::deposit_event(Event::SolutionSubmitted{ challengeId, creator: who.clone() });
+			Self::deposit_event(Event::SolutionSubmitted{ id: challengeId, member: who.clone() });
 
-			Ok(()).into();
+			Ok(()).into()
 		}
 	}
 
