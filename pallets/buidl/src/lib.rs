@@ -144,6 +144,7 @@ pub mod pallet {
 		/// The abstraction over currency and balances for this pallet.
 		type Deposit: LockableCurrency<Self::AccountId, Moment = Self::BlockNumber>;
 		/// The maximum amount of people in a team.
+		#[pallet::constant]
 		type MaxMembers: Get<u32>;
 	}
 
@@ -161,15 +162,11 @@ pub mod pallet {
 	// Errors inform users that something went wrong.
 	#[pallet::error]
 	pub enum Error<T> {
-		/// Error names should be descriptive.
-		NoneValue,
-		/// Errors should have helpful documentation associated with them.
-		StorageOverflow,
+		/// Account editing a challenge must be the original challenge author.
+		AccountHasNoChallengeRegistered,
 	}
 
 	// Dispatchable functions allows users to interact with the pallet and invoke state changes.
-	// These functions materialize as "extrinsics", which are often compared to transactions.
-	// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 	
@@ -213,5 +210,28 @@ pub mod pallet {
 			Ok(()).into()
 
 		}
+
+		
+		#[pallet::weight(0)]
+		pub fn edit_challenge(
+			origin: OriginFor<T>, 
+			new_description: H256,
+		) -> DispatchResult {
+
+			let who = ensure_signed(origin)?;
+
+			// check challenge exists and is owned by caller and get the challenge object
+			let mut challenge = Challenges::<T>::get(&who).ok_or(Error::<T>::AccountHasNoChallengeRegistered)?;
+
+			// mutate the description field with new_description
+			challenge.description = new_description;
+
+			// write updated object to storage
+			Challenges::<T>::insert(&who, challenge);
+
+			Ok(())
+		}
+
 	}
+
 }
