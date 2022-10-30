@@ -88,24 +88,37 @@ mod benchmarking;
 
 #[frame_support::pallet]
 pub mod pallet {
-	use frame_support::pallet_prelude::*;
+	use frame_support::{pallet_prelude::*};
 	use frame_system::pallet_prelude::*;
+	use frame_support::{
+		traits::{Currency, LockIdentifier, LockableCurrency, WithdrawReasons},
+	};
+	use sp_core::H256;
+
+	const DEPOSIT_FOR_CHALLENGE: LockIdentifier = *b" deposit";
+
+	// Handler for balances
+	type BalanceOf<T> =
+		<<T as Config>::Deposit as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
 	// Challenge struct
-	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo)]
+	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+	#[scale_info(skip_type_params(T))]
 	pub struct Challenge<T: Config> {
-		/// description (ipfs hash)
+		/// Description (ipfs hash)
 		pub description: H256,
-		/// reward
-		pub reward: T::Balance,
-		/// eligible judges
-		pub judges: Vec<T::AccountId>,
-		/// number of times a challenge 
-		pub max: u32,
+		/// Challenge id
+		pub id: u32,
+		/// Reward
+		pub reward: BalanceOf<T>,
+		/// Eligible judges
+		pub judges: Option<BoundedVec<T::AccountId, T::MaxMembers>>,
+		/// Number of times a challenge has had a solution submitted to it
+		pub amount_submitted: u32,
 	}
 
 	/// Struct for holding team information
-	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo)]
 	#[scale_info(skip_type_params(T))]
 	pub struct Team<T: Config> {
 		/// The founding member of this team.
@@ -115,14 +128,6 @@ pub mod pallet {
 		team_id: u32,
 		/// The members of this team.
 		members: BoundedVec<T::AccountId, T::MaxMembers>,
-		/// TODO: add registration NFT
-	}
-	
-
-	// Bounty struct
-	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo)]
-	pub struct Bounty<T: Config> {
-		// Do we need this?
 	}
 
 	// Double storage map for team ID -> (AccountId, percentage)
@@ -136,18 +141,21 @@ pub mod pallet {
 	pub trait Config: frame_system::Config {
 		/// Because this pallet emits events, it depends on the runtime's definition of an event.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+		/// The abstraction over currency and balances for this pallet.
+		type Deposit: LockableCurrency<Self::AccountId, Moment = Self::BlockNumber>;
+		/// The maximum amount of people in a team.
+		type MaxMembers: Get<u32>;
 	}
 
 	#[pallet::storage]
-	#[pallet::getter(fn something)]
-	pub type Something<T> = StorageValue<_, u32>;
+	pub type Challenges<T: Config> =
+		StorageMap<_, Twox64Concat, T::AccountId, Challenge<T>, OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// Event documentation should end with an array that provides descriptive names for event
-		/// parameters. [something, who]
-		SomethingStored(u32, T::AccountId),
+		/// A challenge has been created with [id, creator]
+		ChallengeCreated {id: u32, creator: T::AccountId },
 	}
 
 	// Errors inform users that something went wrong.
@@ -164,41 +172,46 @@ pub mod pallet {
 	// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// An example dispatchable that takes a singles value as a parameter, writes the value to
-		/// storage and emits an event. This function must be dispatched by a signed extrinsic.
-		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
-		pub fn do_something(origin: OriginFor<T>, something: u32) -> DispatchResult {
-			// Check that the extrinsic was signed and get the signer.
-			// This function will return an error if the extrinsic is not signed.
-			// https://docs.substrate.io/main-docs/build/origins/
+	
+		// A way for anyone to post their challenge and lock their reward.
+		// TODO: This should return with PostInfo 
+		#[pallet::weight(0)]
+		pub fn create_challenge(
+			origin: OriginFor<T>, 
+			description: H256,
+			id: u32,
+			reward: BalanceOf<T>,
+			judges: Option<BoundedVec<T::AccountId, T::MaxMembers>>
+		) -> DispatchResult
+		{
 			let who = ensure_signed(origin)?;
 
-			// Update storage.
-			<Something<T>>::put(something);
+			// check has sufficient funds and lock
+			// the trait isn't great for multi assets 
+			// custom custom impl better over multi-assets
+			T::Deposit::set_lock(
+				DEPOSIT_FOR_CHALLENGE,
+				&who,
+				reward,
+				WithdrawReasons::all(),
+			);
 
-			// Emit an event.
-			Self::deposit_event(Event::SomethingStored(something, who));
-			// Return a successful DispatchResultWithPostInfo
-			Ok(())
-		}
+			// create new challenge object
+			let new_challenge = Challenge::<T> {
+				id,
+				description,
+				reward,
+				judges,
+				amount_submitted: 0
+			};
 
-		/// An example dispatchable that may throw a custom error.
-		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1).ref_time())]
-		pub fn cause_error(origin: OriginFor<T>) -> DispatchResult {
-			let _who = ensure_signed(origin)?;
+			// write to storage 
+			Challenges::<T>::insert(who.clone(), new_challenge);
 
-			// Read a value from storage.
-			match <Something<T>>::get() {
-				// Return an error if the value has not been set.
-				None => return Err(Error::<T>::NoneValue.into()),
-				Some(old) => {
-					// Increment the value read from storage; will error in the event of overflow.
-					let new = old.checked_add(1).ok_or(Error::<T>::StorageOverflow)?;
-					// Update the value in storage with the incremented result.
-					<Something<T>>::put(new);
-					Ok(())
-				},
-			}
+			Self::deposit_event(Event::ChallengeCreated { id, creator: who.clone() });
+
+			Ok(()).into()
+
 		}
 	}
 }
