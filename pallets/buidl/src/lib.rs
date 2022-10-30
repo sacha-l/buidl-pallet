@@ -229,7 +229,7 @@ pub mod pallet {
 		}
 
 		#[pallet::weight(0)]
-		pub fn submit_challenge(
+		pub fn submit_solution(
 			origin: OriginFor<T>,
 			challengeId: u16,
 			solution: Vec<u8>,
